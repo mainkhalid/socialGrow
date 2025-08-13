@@ -34,8 +34,10 @@ const ProtectedLayout = ({ children }) => {
   return (
     <div className="min-h-screen bg-gray-50">
       <Sidebar />
-      <div className="ml-64 min-h-screen">
-        {children}
+      <div className="md:ml-64 min-h-screen">
+        <main className="p-4 md:p-6">
+          {children}
+        </main>
       </div>
     </div>
   )
