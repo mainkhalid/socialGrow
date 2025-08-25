@@ -98,257 +98,67 @@ function getMissingCredentials(account) {
   return missing;
 }
 
-// Enhanced scheduler initialization with better logging
+///scheduler initialization 
 async function initializeScheduler() {
   console.log('\n Initializing Social Media Scheduler...');
-  console.log('════════════════════════════════════════════════════════════');
   
   try {
-    const allAccounts = await Account.find({});
+    const { initScheduler, autoManageScheduler } = require('./services/scheduler.service');
+    const Account = require('./models/account.model');
     
-    console.log(`Found ${allAccounts.length} total account(s)`);
+    // First initialize the scheduler service
+    await initScheduler();
     
-    if (allAccounts.length === 0) {
-      console.log('\n⏸  Scheduler not initialized - No accounts found');
-      console.log('💡 To get started:');
-      console.log('   1. Create an account via /api/auth/register');
-      console.log('   2. Connect social media accounts via /api/accounts/connect');
-      console.log('   3. Start scheduling posts!');
-      console.log('\n════════════════════════════════════════════════════════════');
-      return;
-    }
-    
-    console.log('\n Validating account credentials and connections...\n');
-    
-    let validAccounts = 0;
-    const accountIssues = [];
-    const accountSummary = [];
-    
-    for (const account of allAccounts) {
-      const platformIcon = {
-        twitter: '🐦',
-        instagram: '📷',
-        facebook: '👥'
-      }[account.platform.toLowerCase()] || '📱';
-      
-      console.log(`${platformIcon} ${account.platform.toUpperCase()}: @${account.username || 'Unknown'}`);
-      
-      // Check credentials
-      const hasRequiredCredentials = validateAccountCredentials(account);
-      
-      if (!hasRequiredCredentials) {
-        const missingCredentials = getMissingCredentials(account);
-        console.log(`   Missing credentials: ${missingCredentials.join(', ')}`);
-        
-        // Mark as disconnected
-        account.connected = false;
-        account.syncStatus = 'disconnected';
-        account.syncError = `Missing credentials: ${missingCredentials.join(', ')}`;
-        account.lastSyncedAt = new Date();
-        await account.save();
-        
-        accountIssues.push({
-          platform: account.platform,
-          username: account.username || 'Unknown',
-          issue: `Missing credentials: ${missingCredentials.join(', ')}`,
-          action: 'Update credentials via update-credentials.js or reconnect account'
-        });
-        
-        accountSummary.push({
-          platform: account.platform,
-          username: account.username || 'Unknown',
-          status: 'credentials_missing',
-          connected: false
-        });
-        
-        console.log('   ────────────────────────────────────────────────');
-        continue;
-      }
-      
-      // Test API connection
-      console.log(`    Testing API connection...`);
-      try {
-        const connectionStatus = await getConnectionStatus(
-          account.platform,
-          account.apiKey || account.facebookAppId,
-          account.apiSecret || account.facebookAppSecret,
-          account.accessToken,
-          account.accessTokenSecret
-        );
-        
-        if (connectionStatus.connected) {
-          console.log(`   Connection: HEALTHY`);
-          
-          // Quick validation test
-          try {
-            await validateSocialMediaCredentials(
-              account.platform,
-              account.apiKey || account.facebookAppId,
-              account.apiSecret || account.facebookAppSecret,
-              account.accessToken,
-              account.accessTokenSecret
-            );
-            
-            console.log(`    API validation: PASSED`);
-            
-            account.connected = true;
-            account.syncStatus = 'success';
-            account.syncError = '';
-            validAccounts++;
-            
-            accountSummary.push({
-              platform: account.platform,
-              username: account.username || 'Unknown',
-              status: 'connected',
-              connected: true
-            });
-            
-          } catch (validationError) {
-            console.log(`    Validation warning: ${validationError.message}`);
-            console.log(`    Connection may work but with limited functionality`);
-            
-            account.connected = true; // Still mark as connected if basic connection works
-            account.syncStatus = 'warning';
-            account.syncError = validationError.message;
-            validAccounts++;
-            
-            accountSummary.push({
-              platform: account.platform,
-              username: account.username || 'Unknown',
-              status: 'connected_with_warnings',
-              connected: true
-            });
-          }
-          
-        } else {
-          console.log(`   Connection: FAILED - ${connectionStatus.message}`);
-          
-          account.connected = false;
-          account.syncStatus = 'failed';
-          account.syncError = connectionStatus.message;
-          
-          accountIssues.push({
-            platform: account.platform,
-            username: account.username || 'Unknown',
-            issue: connectionStatus.message,
-            action: 'Check credentials and API permissions'
-          });
-          
-          accountSummary.push({
-            platform: account.platform,
-            username: account.username || 'Unknown',
-            status: 'connection_failed',
-            connected: false
-          });
-        }
-        
-        account.lastSyncedAt = new Date();
-        await account.save();
-        
-      } catch (connectionError) {
-        console.log(`    Connection test error: ${connectionError.message}`);
-        
-        account.connected = false;
-        account.syncStatus = 'error';
-        account.syncError = `Connection test failed: ${connectionError.message}`;
-        account.lastSyncedAt = new Date();
-        await account.save();
-        
-        accountIssues.push({
-          platform: account.platform,
-          username: account.username || 'Unknown',
-          issue: `Connection test failed: ${connectionError.message}`,
-          action: 'Verify API credentials and network connectivity'
-        });
-        
-        accountSummary.push({
-          platform: account.platform,
-          username: account.username || 'Unknown',
-          status: 'error',
-          connected: false
-        });
-      }
-      
-      console.log('   ────────────────────────────────────────────────');
-    }
-    
-    // Display comprehensive summary
-    console.log('\n INITIALIZATION SUMMARY:');
-    console.log('════════════════════════════════════════════════════════════');
-    console.log(`   Total accounts: ${allAccounts.length}`);
-    console.log(`    Working accounts: ${validAccounts}`);
-    console.log(`    Accounts with issues: ${accountIssues.length}`);
-    
-    // Group accounts by status
-    const statusGroups = accountSummary.reduce((groups, account) => {
-      const status = account.status;
-      if (!groups[status]) groups[status] = [];
-      groups[status].push(account);
-      return groups;
-    }, {});
-    
-    Object.entries(statusGroups).forEach(([status, accounts]) => {
-      const statusIcon = {
-        connected: '✅',
-        connected_with_warnings: '⚠️',
-        credentials_missing: '🔑',
-        connection_failed: '❌',
-        error: '💥'
-      }[status] || '❓';
-      
-      console.log(`   ${statusIcon} ${status.replace(/_/g, ' ').toUpperCase()}: ${accounts.length}`);
-    });
-    
-    // Display detailed issues if any
-    if (accountIssues.length > 0) {
-      console.log('\n  ACCOUNTS NEEDING ATTENTION:');
-      console.log('────────────────────────────────────────────────────────────');
-      accountIssues.forEach((issue, index) => {
-        console.log(`${index + 1}. ${issue.platform.toUpperCase()}: @${issue.username}`);
-        console.log(`   Issue: ${issue.issue}`);
-        console.log(`   Action: ${issue.action}`);
-        console.log('');
+    // Then auto-manage based on account status
+    await autoManageScheduler();
+
+    // Fetch connected accounts
+    const accounts = await Account.find({ connected: true }).lean();
+
+    console.log('\n🔗 Connected Accounts:');
+    if (accounts.length > 0) {
+      accounts.forEach(acc => {
+        console.log(`• [${acc.platform.toUpperCase()}] ${acc.username || acc.pageName || 'N/A'} (ID: ${acc._id})`);
       });
-    }
-    
-    // Initialize scheduler based on results
-    console.log('🚀 SCHEDULER STATUS:');
-    console.log('────────────────────────────────────────────────────────────');
-    
-    if (validAccounts > 0) {
-      try {
-        await initScheduler();
-        console.log(`Scheduler initialized successfully!`);
-        console.log(`Ready to schedule posts for ${validAccounts} account(s)`);
-        
-        // Display available platforms
-        const connectedPlatforms = [...new Set(accountSummary
-          .filter(acc => acc.connected)
-          .map(acc => acc.platform))];
-        
-        if (connectedPlatforms.length > 0) {
-          console.log(`📱 Available platforms: ${connectedPlatforms.join(', ')}`);
-        }
-        
-      } catch (schedulerError) {
-        console.log(`Scheduler initialization failed: ${schedulerError.message}`);
-        console.log(`⏸ Manual posting may still work for connected accounts`);
-      }
     } else {
-      console.log('⏸ Scheduler not initialized - No working accounts found');
-      console.log(' Fix the account issues above to enable scheduling');
+      console.log(' No accounts connected yet');
     }
-    
-    console.log('\n Server initialization complete!');
-    console.log('════════════════════════════════════════════════════════════\n');
+
+    console.log('\n Scheduler initialization complete!');
     
   } catch (error) {
     console.error('\n Scheduler initialization error:', error.message);
-    console.log('⏸ Scheduler not initialized due to error');
-    console.log(' Server will continue running with limited functionality');
-    console.log('════════════════════════════════════════════════════════════\n');
+    console.log('⏸Scheduler not initialized due to error');
+  }
+ 
+const accounts = await Account.find({});
+for (const account of accounts) {
+  const hasRequiredCredentials = validateAccountCredentials(account);
+  if (hasRequiredCredentials) {
+    try {
+      const connectionStatus = await getConnectionStatus(
+        account.platform,
+        account.apiKey || account.facebookAppId,
+        account.apiSecret || account.facebookAppSecret,
+        account.accessToken,
+        account.accessTokenSecret
+      );
+      account.connected = connectionStatus.connected;
+      account.syncStatus = connectionStatus.connected ? 'success' : 'failed';
+      account.syncError = connectionStatus.connected ? '' : connectionStatus.message;
+      account.lastSyncedAt = new Date();
+      await account.save();
+    } catch (err) {
+      account.connected = false;
+      account.syncStatus = 'error';
+      account.syncError = err.message;
+      await account.save();
+    }
   }
 }
+
+}
+
 
 // Routes
 app.use('/api/auth', authRoutes);
@@ -439,7 +249,6 @@ app.get('/api/debug/accounts', authenticateToken, async (req, res) => {
   }
 });
 
-// Test connections endpoint with better error handling
 app.post('/api/debug/test-connections', authenticateToken, async (req, res) => {
   try {
     const accounts = await Account.find({ userId: req.user.userId });

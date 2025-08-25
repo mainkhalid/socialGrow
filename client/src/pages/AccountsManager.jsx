@@ -11,7 +11,6 @@ import {
   EyeIcon,
   EyeOffIcon,
   RefreshCwIcon,
-  BugIcon,
 } from "lucide-react";
 
 const AccountsManager = () => {
@@ -139,21 +138,6 @@ const AccountsManager = () => {
     }
   };
 
-  const testConnection = async () => {
-    try {
-      console.log("Testing API connection...");
-      console.log("Auth headers:", getAuthHeaders());
-      console.log("User:", user);
-
-      const response = await axios.get("/api/debug/accounts");
-      console.log("Debug response:", response.data);
-      alert("API connection successful! Check console for details.");
-    } catch (err) {
-      console.error("API test failed:", err);
-      alert(`API test failed: ${err.response?.data?.message || err.message}`);
-    }
-  };
-
   const handleInputChange = (e) => {
     const { name, value } = e.target;
     setNewAccount({
@@ -207,8 +191,8 @@ const AccountsManager = () => {
 
   if (!isAuthenticated) {
     return (
-      <div className="p-6 max-w-7xl mx-auto">
-        <div className="bg-white p-8 rounded-xl shadow-sm border border-gray-200 text-center">
+      <div className="p-4 sm:p-6 max-w-7xl mx-auto">
+        <div className="bg-white p-6 sm:p-8 rounded-xl shadow-sm border border-gray-200 text-center">
           <ShieldCheckIcon size={48} className="mx-auto mb-4 text-gray-300" />
           <h2 className="text-xl font-semibold mb-2">Authentication Required</h2>
           <p className="text-gray-500">
@@ -221,8 +205,8 @@ const AccountsManager = () => {
 
   if (loading) {
     return (
-      <div className="p-6 max-w-7xl mx-auto">
-        <div className="bg-white p-8 rounded-xl shadow-sm border border-gray-200 text-center">
+      <div className="p-4 sm:p-6 max-w-7xl mx-auto">
+        <div className="bg-white p-6 sm:p-8 rounded-xl shadow-sm border border-gray-200 text-center">
           <RefreshCwIcon size={48} className="mx-auto mb-4 text-gray-300 animate-spin" />
           <h2 className="text-xl font-semibold mb-2">Loading accounts...</h2>
           <p className="text-gray-500">
@@ -235,31 +219,22 @@ const AccountsManager = () => {
 
   if (error) {
     return (
-      <div className="p-6 max-w-7xl mx-auto">
+      <div className="p-4 sm:p-6 max-w-7xl mx-auto">
         <div className="bg-white rounded-xl shadow-sm border border-red-200 overflow-hidden">
-          <div className="p-6 bg-red-50 border-b border-red-200">
+          <div className="p-4 sm:p-6 bg-red-50 border-b border-red-200">
             <h3 className="text-lg font-semibold text-red-800 mb-2">
               Error Loading Accounts
             </h3>
-            <p className="text-red-600">{error}</p>
+            <p className="text-red-600 text-sm sm:text-base">{error}</p>
           </div>
-          <div className="p-6">
-            <div className="flex gap-3">
-              <button
-                onClick={fetchAccounts}
-                className="px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-lg flex items-center"
-              >
-                <RefreshCwIcon size={16} className="mr-2" />
-                Retry
-              </button>
-              <button
-                onClick={testConnection}
-                className="px-4 py-2 bg-gray-500 hover:bg-gray-600 text-white rounded-lg flex items-center"
-              >
-                <BugIcon size={16} className="mr-2" />
-                Debug API
-              </button>
-            </div>
+          <div className="p-4 sm:p-6">
+            <button
+              onClick={fetchAccounts}
+              className="w-full sm:w-auto px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-lg flex items-center justify-center"
+            >
+              <RefreshCwIcon size={16} className="mr-2" />
+              Retry
+            </button>
           </div>
         </div>
       </div>
@@ -267,49 +242,42 @@ const AccountsManager = () => {
   }
 
   return (
-    <div className="p-6 max-w-7xl mx-auto">
-      <header className="flex justify-between items-center mb-8">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-800">
+    <div className="p-4 sm:p-6 max-w-7xl mx-auto">
+      <header className="mb-6 sm:mb-8">
+        <div className="mb-4">
+          <h1 className="text-xl sm:text-2xl font-bold text-gray-800">
             Connected Social Media Accounts
           </h1>
-          <p className="text-gray-600">
+          <p className="text-gray-600 text-sm sm:text-base">
             Manage your social media connections and API credentials
           </p>
         </div>
-        <div className="flex gap-3">
+        <div className="flex flex-col sm:flex-row gap-2 sm:gap-3">
           <button
             onClick={fetchAccounts}
-            className="px-4 py-2 bg-green-500 hover:bg-green-600 text-white rounded-lg flex items-center"
+            className="px-4 py-2 bg-green-500 hover:bg-green-600 text-white rounded-lg flex items-center justify-center"
           >
-            <RefreshCwIcon size={18} className="mr-1" />
+            <RefreshCwIcon size={16} sm:size={18} className="mr-1" />
             Refresh
           </button>
           <button
-            onClick={testConnection}
-            className="px-4 py-2 bg-gray-500 hover:bg-gray-600 text-white rounded-lg flex items-center"
-          >
-            <BugIcon size={18} className="mr-1" />
-            Debug API
-          </button>
-          <button
             onClick={() => setShowAddForm(true)}
-            className="px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-lg flex items-center"
+            className="px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-lg flex items-center justify-center"
           >
-            <PlusCircleIcon size={18} className="mr-1" />
+            <PlusCircleIcon size={16} sm:size={18} className="mr-1" />
             Add Account
           </button>
         </div>
       </header>
 
       {accounts.length === 0 ? (
-        <div className="bg-white p-8 rounded-xl shadow-sm border border-gray-200 text-center">
+        <div className="bg-white p-6 sm:p-8 rounded-xl shadow-sm border border-gray-200 text-center">
           <ShieldCheckIcon size={48} className="mx-auto mb-4 text-gray-300" />
-          <h2 className="text-xl font-semibold mb-2">No Accounts Connected</h2>
-          <p className="text-gray-500 mb-4">
+          <h2 className="text-lg sm:text-xl font-semibold mb-2">No Accounts Connected</h2>
+          <p className="text-gray-500 mb-4 text-sm sm:text-base">
             You haven't connected any social media accounts yet.
           </p>
-          <p className="text-sm text-gray-400 mb-6">
+          <p className="text-xs sm:text-sm text-gray-400 mb-6">
             User ID: {user?.userId || user?.id || "Unknown"}
             <br />
             Total accounts in response: {accounts.length}
@@ -323,51 +291,53 @@ const AccountsManager = () => {
         </div>
       ) : (
         <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
-          <div className="p-4 border-b border-gray-200 bg-gray-50 flex justify-between items-center">
-            <div>
-              <h2 className="font-medium">Connected Accounts</h2>
-              <p className="text-sm text-gray-500">
-                Found {accounts.length} account(s) for user:{" "}
-                {user?.email || user?.name || "Unknown"}
-              </p>
-            </div>
-            <div className="flex items-center">
-              <button
-                onClick={() => setShowSecrets(!showSecrets)}
-                className="flex items-center text-sm text-gray-500 hover:text-gray-700"
-              >
-                {showSecrets ? (
-                  <>
-                    <EyeOffIcon size={14} className="mr-1" />
-                    Hide Credentials
-                  </>
-                ) : (
-                  <>
-                    <EyeIcon size={14} className="mr-1" />
-                    Show Credentials
-                  </>
-                )}
-              </button>
+          <div className="p-4 border-b border-gray-200 bg-gray-50">
+            <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-2">
+              <div>
+                <h2 className="font-medium">Connected Accounts</h2>
+                <p className="text-xs sm:text-sm text-gray-500">
+                  Found {accounts.length} account(s) for user:{" "}
+                  {user?.email || user?.name || "Unknown"}
+                </p>
+              </div>
+              <div className="flex items-center">
+                <button
+                  onClick={() => setShowSecrets(!showSecrets)}
+                  className="flex items-center text-sm text-gray-500 hover:text-gray-700"
+                >
+                  {showSecrets ? (
+                    <>
+                      <EyeOffIcon size={14} className="mr-1" />
+                      Hide Credentials
+                    </>
+                  ) : (
+                    <>
+                      <EyeIcon size={14} className="mr-1" />
+                      Show Credentials
+                    </>
+                  )}
+                </button>
+              </div>
             </div>
           </div>
           <div className="divide-y divide-gray-200">
             {accounts.map((account) => (
               <div key={account._id || account.id} className="p-4">
-                <div className="flex items-start">
-                  <div className="mr-4">
+                <div className="flex items-start gap-3 sm:gap-4">
+                  <div className="flex-shrink-0">
                     {platformIcons[account.platform] || (
                       <div className="w-8 h-8 rounded-full bg-gray-500 flex items-center justify-center text-white font-bold">
                         ?
                       </div>
                     )}
                   </div>
-                  <div className="flex-1">
-                    <div className="flex items-center mb-1">
-                      <h3 className="font-medium text-gray-900">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex flex-col sm:flex-row sm:items-center mb-2 gap-1 sm:gap-2">
+                      <h3 className="font-medium text-gray-900 truncate">
                         @{account.username || account.displayName || "Unknown"}
                       </h3>
                       <span
-                        className={`ml-2 px-2 py-0.5 text-xs rounded-full ${
+                        className={`inline-flex px-2 py-1 text-xs rounded-full self-start ${
                           account.connected
                             ? "bg-green-100 text-green-800"
                             : "bg-red-100 text-red-800"
@@ -376,10 +346,10 @@ const AccountsManager = () => {
                         {account.connected ? "✅ Connected" : "❌ Disconnected"}
                       </span>
                     </div>
-                    <p className="text-sm text-gray-500 mb-3">
+                    <p className="text-xs sm:text-sm text-gray-500 mb-3">
                       {account.platform?.toUpperCase() || "Unknown Platform"}
                       {account.syncStatus && (
-                        <span className="ml-2">
+                        <span className="block sm:inline sm:ml-2">
                           • Status: {account.syncStatus.status}
                           {account.syncStatus.error &&
                             ` - ${account.syncStatus.error}`}
@@ -387,10 +357,10 @@ const AccountsManager = () => {
                       )}
                     </p>
                     {/* API Credentials Display */}
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-3">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 sm:gap-3 mb-3">
                       <div className="bg-gray-50 p-2 rounded-md">
                         <p className="text-xs text-gray-500 mb-1">API Key</p>
-                        <p className="text-sm font-mono">
+                        <p className="text-xs font-mono break-all">
                           {showSecrets
                             ? account.apiKey || "Not provided"
                             : maskString(account.apiKey || "Not provided")}
@@ -398,17 +368,17 @@ const AccountsManager = () => {
                       </div>
                       <div className="bg-gray-50 p-2 rounded-md">
                         <p className="text-xs text-gray-500 mb-1">API Secret</p>
-                        <p className="text-sm font-mono">
+                        <p className="text-xs font-mono break-all">
                           {showSecrets
                             ? account.apiSecret || "Not provided"
                             : maskString(account.apiSecret || "Not provided")}
                         </p>
                       </div>
-                      <div className="bg-gray-50 p-2 rounded-md">
+                      <div className="bg-gray-50 p-2 rounded-md sm:col-span-2 lg:col-span-1">
                         <p className="text-xs text-gray-500 mb-1">
                           Access Token
                         </p>
-                        <p className="text-sm font-mono">
+                        <p className="text-xs font-mono break-all">
                           {showSecrets
                             ? account.accessToken || "Not provided"
                             : maskString(account.accessToken || "Not provided")}
@@ -416,10 +386,10 @@ const AccountsManager = () => {
                       </div>
                     </div>
                   </div>
-                  <div className="flex">
+                  <div className="flex flex-col sm:flex-row gap-1 sm:gap-2 flex-shrink-0">
                     <button
                       onClick={() => toggleConnection(account._id || account.id)}
-                      className={`p-2 mr-2 rounded-md ${
+                      className={`p-2 rounded-md ${
                         account.connected
                           ? "text-red-500 hover:bg-red-50"
                           : "text-green-500 hover:bg-green-50"
@@ -427,9 +397,9 @@ const AccountsManager = () => {
                       title={account.connected ? "Disconnect" : "Connect"}
                     >
                       {account.connected ? (
-                        <XCircleIcon size={20} />
+                        <XCircleIcon size={18} />
                       ) : (
-                        <CheckCircleIcon size={20} />
+                        <CheckCircleIcon size={18} />
                       )}
                     </button>
                     <button
@@ -437,7 +407,7 @@ const AccountsManager = () => {
                       className="p-2 rounded-md text-gray-400 hover:text-red-500 hover:bg-red-50"
                       title="Remove Account"
                     >
-                      <TrashIcon size={20} />
+                      <TrashIcon size={18} />
                     </button>
                   </div>
                 </div>
@@ -449,10 +419,10 @@ const AccountsManager = () => {
 
       {/* Add Account Modal */}
       {showAddForm && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-xl p-6 max-w-lg w-full mx-4">
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl p-4 sm:p-6 max-w-lg w-full max-h-[90vh] overflow-y-auto">
             <div className="flex justify-between items-center mb-4">
-              <h2 className="text-xl font-bold">Connect New Account</h2>
+              <h2 className="text-lg sm:text-xl font-bold">Connect New Account</h2>
               <button
                 onClick={() => {
                   setShowAddForm(false);
@@ -465,10 +435,10 @@ const AccountsManager = () => {
             </div>
             <form onSubmit={handleSubmit}>
               <div className="mb-4">
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label className="block text-sm font-medium text-gray-700 mb-2">
                   Platform
                 </label>
-                <div className="grid grid-cols-3 gap-2">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                   {["twitter", "instagram", "facebook"].map((p) => (
                     <button
                       key={p}
@@ -479,7 +449,7 @@ const AccountsManager = () => {
                           platform: p,
                         })
                       }
-                      className={`p-2 rounded-lg flex items-center justify-center ${
+                      className={`p-2 sm:p-3 rounded-lg flex items-center justify-center text-sm ${
                         newAccount.platform === p
                           ? platformColors[p]
                           : "bg-gray-100 text-gray-700"
@@ -499,7 +469,7 @@ const AccountsManager = () => {
                   name="username"
                   value={newAccount.username}
                   onChange={handleInputChange}
-                  className="w-full border border-gray-300 rounded-lg p-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  className="w-full border border-gray-300 rounded-lg p-2 sm:p-3 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                   placeholder={`Your ${platformLabels[newAccount.platform]} username`}
                 />
               </div>
@@ -513,7 +483,7 @@ const AccountsManager = () => {
                     name="apiKey"
                     value={newAccount.apiKey}
                     onChange={handleInputChange}
-                    className="w-full border border-gray-300 rounded-lg p-2 pr-10 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    className="w-full border border-gray-300 rounded-lg p-2 sm:p-3 pr-10 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                     placeholder="Enter your API key"
                   />
                   <KeyIcon
@@ -532,7 +502,7 @@ const AccountsManager = () => {
                     name="apiSecret"
                     value={newAccount.apiSecret}
                     onChange={handleInputChange}
-                    className="w-full border border-gray-300 rounded-lg p-2 pr-10 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    className="w-full border border-gray-300 rounded-lg p-2 sm:p-3 pr-10 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                     placeholder="Enter your API secret"
                   />
                   <ShieldCheckIcon
@@ -551,7 +521,7 @@ const AccountsManager = () => {
                     name="accessToken"
                     value={newAccount.accessToken}
                     onChange={handleInputChange}
-                    className="w-full border border-gray-300 rounded-lg p-2 pr-10 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    className="w-full border border-gray-300 rounded-lg p-2 sm:p-3 pr-10 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                     placeholder="Enter your access token if available"
                   />
                   <ShieldCheckIcon
@@ -565,7 +535,7 @@ const AccountsManager = () => {
                   {formError}
                 </div>
               )}
-              <div className="flex justify-end space-x-2">
+              <div className="flex flex-col sm:flex-row justify-end gap-2 sm:gap-3">
                 <button
                   type="button"
                   onClick={() => {
@@ -595,7 +565,7 @@ const AccountsManager = () => {
       )}
 
       {/* Info Section */}
-      <div className="mt-8 bg-gray-50 p-4 rounded-lg border border-gray-200">
+      <div className="mt-6 sm:mt-8 bg-gray-50 p-4 rounded-lg border border-gray-200">
         <h3 className="font-medium text-gray-800 mb-2">
           About API Credentials
         </h3>

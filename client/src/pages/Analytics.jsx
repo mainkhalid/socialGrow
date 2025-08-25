@@ -591,7 +591,7 @@ const Analytics = () => {
         </div>
       </div>
 
-      {/* Content Performance Table */}
+       {/* Content Performance Table */}
       <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200 mb-6">
         <h2 className="text-lg font-semibold mb-4">Top Performing Content</h2>
         <div className="overflow-x-auto">
@@ -599,10 +599,10 @@ const Analytics = () => {
             <thead>
               <tr>
                 <th className="px-6 py-3 bg-gray-50 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Post Content
+                  Content
                 </th>
                 <th className="px-6 py-3 bg-gray-50 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Date
+                  Published
                 </th>
                 <th className="px-6 py-3 bg-gray-50 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                   Likes
@@ -614,41 +614,42 @@ const Analytics = () => {
                   Shares
                 </th>
                 <th className="px-6 py-3 bg-gray-50 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Total Engagement
+                  Total
                 </th>
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
               {contentPerformance.length > 0 ? (
                 contentPerformance.map((post, index) => (
-                  <tr key={post.id || index}>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                      {post.content}
+                  <tr key={post.id || index} className="hover:bg-gray-50">
+                    <td className="px-6 py-4 text-sm text-gray-900 max-w-xs">
+                      <div className="truncate">{post.content}</div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                       {new Date(post.publishedAt).toLocaleDateString()}
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                      {post.analytics.likes}
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 font-medium">
+                      {post.analytics.likes.toLocaleString()}
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                      {post.analytics.comments}
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 font-medium">
+                      {post.analytics.comments.toLocaleString()}
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                      {post.analytics.shares}
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 font-medium">
+                      {post.analytics.shares.toLocaleString()}
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                      {post.analytics.totalEngagement}
+                    <td className="px-6 py-4 whitespace-nowrap text-sm font-bold text-gray-900">
+                      {post.analytics.totalEngagement.toLocaleString()}
                     </td>
                   </tr>
                 ))
               ) : (
                 <tr>
-                  <td
-                    colSpan="6"
-                    className="px-6 py-4 text-center text-sm text-gray-500"
-                  >
-                    No content performance data available
+                  <td colSpan="6" className="px-6 py-8 text-center text-sm text-gray-500">
+                    <div className="flex flex-col items-center">
+                      <BarChart2 className="h-8 w-8 text-gray-300 mb-2" />
+                      <p>No published content found</p>
+                      <p className="text-xs mt-1">Analytics will appear after publishing posts</p>
+                    </div>
                   </td>
                 </tr>
               )}
@@ -664,21 +665,16 @@ const Analytics = () => {
           {audienceDemographics ? (
             <>
               <div className="p-4 bg-gray-50 rounded-lg">
-                <h3 className="text-sm font-medium text-gray-500">
-                  Top Age Group
-                </h3>
+                <h3 className="text-sm font-medium text-gray-500">Top Age Group</h3>
                 <p className="text-lg font-semibold">
-                  {audienceDemographics.ageGroups?.[0]?.range} (
-                  {audienceDemographics.ageGroups?.[0]?.percentage}%)
+                  {audienceDemographics.ageGroups?.[0]?.range || "N/A"} (
+                  {audienceDemographics.ageGroups?.[0]?.percentage || 0}%)
                 </p>
               </div>
               <div className="p-4 bg-gray-50 rounded-lg">
-                <h3 className="text-sm font-medium text-gray-500">
-                  Gender Split
-                </h3>
+                <h3 className="text-sm font-medium text-gray-500">Gender Split</h3>
                 <p className="text-lg font-semibold">
-                  {audienceDemographics.gender?.female >
-                  audienceDemographics.gender?.male
+                  {audienceDemographics.gender?.female > audienceDemographics.gender?.male
                     ? "Female"
                     : "Male"}{" "}
                   (
@@ -690,17 +686,13 @@ const Analytics = () => {
                 </p>
               </div>
               <div className="p-4 bg-gray-50 rounded-lg">
-                <h3 className="text-sm font-medium text-gray-500">
-                  Top Location
-                </h3>
+                <h3 className="text-sm font-medium text-gray-500">Top Location</h3>
                 <p className="text-lg font-semibold">
-                  {audienceDemographics.locations?.[0]?.name}
+                  {audienceDemographics.locations?.[0]?.name || "N/A"}
                 </p>
               </div>
               <div className="p-4 bg-gray-50 rounded-lg">
-                <h3 className="text-sm font-medium text-gray-500">
-                  Peak Activity
-                </h3>
+                <h3 className="text-sm font-medium text-gray-500">Peak Activity</h3>
                 <p className="text-lg font-semibold">
                   {audienceDemographics.activeHours?.peak || "6PM - 9PM"}
                 </p>
@@ -708,7 +700,11 @@ const Analytics = () => {
             </>
           ) : (
             <div className="col-span-full text-center text-sm text-gray-500 py-8">
-              No audience demographic data available for this platform
+              <div className="flex flex-col items-center">
+                <Users className="h-8 w-8 text-gray-300 mb-2" />
+                <p>No audience demographic data available</p>
+                <p className="text-xs mt-1">Demographics will appear once available from {platformNames[platform]}</p>
+              </div>
             </div>
           )}
         </div>

@@ -18,7 +18,7 @@ const getPosts = async (req, res) => {
     }
 
     const posts = await Post.find(query)
-      .populate('accountId', 'platform username connected')
+      .populate('accountId', 'platform username connected apiKey apiSecret accessToken accessTokenSecret facebookAppId facebookAppSecret') // Include ALL required fields
       .sort({ scheduledDate: 1 })
       .limit(parseInt(limit))
       .skip(parseInt(offset));
@@ -30,10 +30,11 @@ const getPosts = async (req, res) => {
         
         if (post.accountId && post.accountId.connected) {
           try {
+            // Use the correct credentials based on platform
             const connectionStatus = await getConnectionStatus(
               post.accountId.platform,
-              post.accountId.apiKey,
-              post.accountId.apiSecret,
+              post.accountId.apiKey || post.accountId.facebookAppId,
+              post.accountId.apiSecret || post.accountId.facebookAppSecret,
               post.accountId.accessToken,
               post.accountId.accessTokenSecret
             );

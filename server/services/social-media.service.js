@@ -1,7 +1,9 @@
 const axios = require("axios");
 const crypto = require("crypto");
+const FormData = require("form-data");
 const mongoose = require("mongoose");
 const OAuth = require("oauth-1.0a");
+const { TwitterApi } = require("twitter-api-v2");
 const Account = require("../models/account.model");
 
 class SocialMediaService {
@@ -143,7 +145,7 @@ class SocialMediaService {
   }
 
   /**
-   * Sync social media stats with improved error handling and retry logic
+   * Sync social media stats with improved error handling and retry logic - REAL API CALLS
    */
   async syncSocialMediaStats(platform, accountId) {
     try {
@@ -249,7 +251,7 @@ class SocialMediaService {
   }
 
   /**
-   * Get Twitter/X statistics with better error handling
+   * Get Twitter/X statistics with better error handling - REAL API CALLS
    */
   async getTwitterStats(apiKey, apiSecret, accessToken, accessTokenSecret) {
     try {
@@ -389,7 +391,7 @@ class SocialMediaService {
   }
 
   /**
-   * Get Instagram statistics with improved page handling
+   * Get Instagram statistics with improved page handling - REAL API CALLS
    */
   async getInstagramStats(
     accessToken,
@@ -428,19 +430,24 @@ class SocialMediaService {
             );
 
             // Update the account record with this information
+            // FIX: Store the ID as a string, not an object
             const account = await Account.findOne({
               platform: "instagram",
-              "profileData.instagramBusinessAccount.id": { $exists: false },
+              accessToken: accessToken, // Better way to find the account
             });
 
             if (account) {
               account.profileData = {
                 ...account.profileData,
-                instagramBusinessAccount: page.instagram_business_account.id,
+                instagramBusinessAccount: page.instagram_business_account.id, // Store as string, not object
                 pageAccessToken: page.access_token,
                 pageId: page.id,
                 pageName: page.name,
               };
+
+              // Also update the instagramBusinessId field directly if it exists in schema
+              account.instagramBusinessId = page.instagram_business_account.id;
+
               await account.save();
             }
             break;
@@ -517,6 +524,7 @@ class SocialMediaService {
         website: accountData.website || "",
         username: accountData.username || "",
         displayName: accountData.name || accountData.username || "",
+        instagramBusinessId: instagramAccountId, // Include this for future reference
       };
     } catch (error) {
       console.error(
@@ -545,9 +553,8 @@ class SocialMediaService {
       );
     }
   }
-
   /**
-   * Get Facebook Page statistics with better error handling
+   * Get Facebook Page statistics with better error handling - REAL API CALLS
    */
   async getFacebookStats(accessToken, pageId = null, pageAccessToken = null) {
     try {
@@ -701,8 +708,734 @@ class SocialMediaService {
   }
 
   /**
-   * Enhanced credential validation with better error messages
+   * Main publishing function - routes to platform-specific publishers
    */
+  async publishToSocialMedia(post, account) {
+    try {
+      console.log(`🚀 Publishing post ${post._id} to ${account.platform}...`);
+
+      // Validate account credentials first
+      const credentialsValid = this.validateAccountCredentials(account);
+      if (!credentialsValid.valid) {
+        throw new Error(`Invalid credentials: ${credentialsValid.message}`);
+      }
+
+      // Check rate limits
+      await this.checkRateLimit(account.platform);
+
+      // Platform-specific publishing
+      switch (account.platform.toLowerCase()) {
+        case "twitter":
+          return await this.publishToTwitter(post, account);
+        case "facebook":
+          return await this.publishToFacebook(post, account);
+        case "instagram":
+          return await this.publishToInstagram(post, account);
+        default:
+          throw new Error(
+            `Publishing not supported for platform: ${account.platform}`
+          );
+      }
+    } catch (error) {
+      console.error(
+        `❌ Publishing failed for ${account.platform}:`,
+        error.message
+      );
+      return {
+        success: false,
+        error: error.message,
+        errorCategory: this.categorizeError(error),
+      };
+    }
+  }
+  /**
+ * Publish to Twitter using Twitter API v2
+ */
+async publishToTwitter(post, account) {
+  try {
+    console.log(`🐦 Publishing to Twitter account: ${account.username}`);
+
+    // Initialize Twitter client
+    const client = new TwitterApi({
+      appKey: account.apiKey || this.credentials.twitter.apiKey,
+      appSecret: account.apiSecret || this.credentials.twitter.apiSecret,
+      accessToken: account.accessToken || this.credentials.twitter.accessToken,
+      accessSecret: account.accessTokenSecret || this.credentials.twitter.accessTokenSecret,
+    });
+
+    // Prepare tweet data
+    const tweetData = {
+      text: post.content,
+    };
+
+    // Handle media uploads if present
+    if (post.mediaUrls && post.mediaUrls.length > 0) {
+      const mediaIds = [];
+      
+      // Twitter allows up to 4 images or 1 video per tweet
+      const mediaLimit = 4;
+      const mediasToUpload = post.mediaUrls.slice(0, mediaLimit);
+
+      for (const mediaUrl of mediasToUpload) {
+        try {
+          console.log(`📎 Uploading media: ${mediaUrl}`);
+          const mediaId = await this.uploadTwitterMedia(client, mediaUrl);
+          mediaIds.push(mediaId);
+        } catch (mediaError) {
+          console.warn(`⚠️ Failed to upload media ${mediaUrl}:`, mediaError.message);
+          // Continue with other media files
+        }
+      }
+
+      if (mediaIds.length > 0) {
+        tweetData.media = {
+          media_ids: mediaIds
+        };
+      }
+    }
+
+    // Check content length (Twitter's limit is 280 characters)
+    if (tweetData.text.length > 280) {
+      // Option 1: Truncate with ellipsis
+      tweetData.text = tweetData.text.substring(0, 277) + "...";
+      
+      // Option 2: You could also throw an error to force manual editing
+      // throw new Error(`Tweet too long (${tweetData.text.length} characters). Maximum is 280 characters.`);
+    }
+
+    // Publish the tweet
+    const response = await client.v2.tweet(tweetData);
+
+    console.log(`✅ Twitter post published successfully: ${response.data.id}`);
+
+    return {
+      success: true,
+      externalPostId: response.data.id,
+      publishedAt: new Date(),
+      platformResponse: {
+        platform: "twitter",
+        postId: response.data.id,
+        tweetText: response.data.text,
+      },
+    };
+
+  } catch (error) {
+    console.error("❌ Twitter publishing error:", error);
+
+    // Handle specific Twitter API errors
+    if (error.code === 429 || error.message?.includes('rate limit')) {
+      throw new Error("Twitter rate limit exceeded. Please try again later.");
+    } else if (error.code === 401 || error.message?.includes('Unauthorized')) {
+      throw new Error("Twitter authentication failed. Please reconnect your account.");
+    } else if (error.code === 403 || error.message?.includes('Forbidden')) {
+      throw new Error("Twitter access forbidden. Check your app permissions.");
+    } else if (error.code === 187 || error.message?.includes('duplicate')) {
+      throw new Error("Duplicate tweet detected. Twitter doesn't allow identical tweets.");
+    } else if (error.code === 186) {
+      throw new Error("Tweet is too long. Please shorten your message.");
+    } else if (error.message?.includes('media')) {
+      throw new Error(`Media upload failed: ${error.message}`);
+    }
+
+    // Generic error
+    throw new Error(`Twitter API error: ${error.message || 'Unknown error occurred'}`);
+  }
+}
+  
+  async uploadTwitterMedia(client, mediaUrl) {
+    try {
+      // Download media from URL
+      const mediaResponse = await axios.get(mediaUrl, {
+        responseType: "arraybuffer",
+        timeout: 30000,
+        maxContentLength: 5 * 1024 * 1024, // 5MB limit
+      });
+
+      const mediaBuffer = Buffer.from(mediaResponse.data);
+
+      // Upload to Twitter
+      const mediaId = await client.v1.uploadMedia(mediaBuffer, {
+        mimeType: mediaResponse.headers["content-type"] || "image/jpeg",
+      });
+
+      return mediaId;
+    } catch (error) {
+      throw new Error(`Media upload failed: ${error.message}`);
+    }
+  }
+
+  /**
+   * Publish to Facebook Page
+   */
+  async publishToFacebook(post, account) {
+    try {
+      console.log(`📘 Publishing to Facebook page: ${account.username}`);
+
+      const baseUrl = "https://graph.facebook.com/v18.0";
+
+      // Get page access token if needed
+      let pageAccessToken = account.pageAccessToken || account.accessToken;
+      let pageId = account.profileData?.pageId;
+
+      if (!pageId) {
+        // Get user's pages to find the right one
+        const pagesResponse = await axios.get(`${baseUrl}/me/accounts`, {
+          params: {
+            fields: "id,name,access_token",
+            access_token: account.accessToken,
+          },
+          timeout: 10000,
+        });
+
+        const pages = pagesResponse.data.data || [];
+        if (pages.length === 0) {
+          throw new Error(
+            "No Facebook pages found. Please create a Facebook page first."
+          );
+        }
+
+        // Use the first page or find by name
+        const targetPage =
+          pages.find((p) => p.name === account.username) || pages[0];
+        pageId = targetPage.id;
+        pageAccessToken = targetPage.access_token;
+
+        // Update account with page info
+        account.profileData = {
+          ...account.profileData,
+          pageId: pageId,
+          pageName: targetPage.name,
+        };
+        account.pageAccessToken = pageAccessToken;
+        await account.save();
+      }
+
+      // Prepare post data
+      const postData = {
+        message: post.content,
+        access_token: pageAccessToken,
+      };
+
+      // Handle media uploads
+      if (post.mediaUrls && post.mediaUrls.length > 0) {
+        // For multiple media, create a multi-photo post
+        if (post.mediaUrls.length > 1) {
+          return await this.publishFacebookMultiPhoto(
+            pageId,
+            post,
+            pageAccessToken
+          );
+        } else {
+          // Single photo/video
+          postData.link = post.mediaUrls[0];
+        }
+      }
+
+      // Publish the post
+      const response = await axios.post(`${baseUrl}/${pageId}/feed`, postData, {
+        timeout: 15000,
+      });
+
+      console.log(
+        `✅ Facebook post published successfully: ${response.data.id}`
+      );
+
+      return {
+        success: true,
+        externalPostId: response.data.id,
+        publishedAt: new Date(),
+        platformResponse: {
+          platform: "facebook",
+          postId: response.data.id,
+          pageId: pageId,
+        },
+      };
+    } catch (error) {
+      console.error(
+        "❌ Facebook publishing error:",
+        error.response?.data || error.message
+      );
+
+      if (error.response?.status === 429) {
+        throw new Error(
+          "Facebook rate limit exceeded. Please try again later."
+        );
+      } else if (
+        error.response?.status === 190 ||
+        error.response?.data?.error?.code === 190
+      ) {
+        throw new Error(
+          "Facebook access token expired. Please reconnect your account."
+        );
+      } else if (error.response?.data?.error?.code === 200) {
+        throw new Error(
+          "Facebook permissions error. Please check your page permissions."
+        );
+      }
+
+      throw new Error(
+        `Facebook API error: ${
+          error.response?.data?.error?.message || error.message
+        }`
+      );
+    }
+  }
+
+  /**
+   * Publish multiple photos to Facebook
+   */
+  async publishFacebookMultiPhoto(pageId, post, pageAccessToken) {
+    try {
+      const baseUrl = "https://graph.facebook.com/v18.0";
+      const attachedMedia = [];
+
+      // Upload each photo first
+      for (const mediaUrl of post.mediaUrls.slice(0, 10)) {
+        // Facebook allows max 10 photos
+        try {
+          const photoResponse = await axios.post(
+            `${baseUrl}/${pageId}/photos`,
+            {
+              url: mediaUrl,
+              published: false, // Don't publish yet
+              access_token: pageAccessToken,
+            }
+          );
+
+          attachedMedia.push({
+            media_fbid: photoResponse.data.id,
+          });
+        } catch (mediaError) {
+          console.warn(
+            `⚠️ Failed to upload photo ${mediaUrl}:`,
+            mediaError.message
+          );
+          // Continue with other photos
+        }
+      }
+
+      if (attachedMedia.length === 0) {
+        throw new Error("Failed to upload any media files");
+      }
+
+      // Create the multi-photo post
+      const response = await axios.post(`${baseUrl}/${pageId}/feed`, {
+        message: post.content,
+        attached_media: attachedMedia,
+        access_token: pageAccessToken,
+      });
+
+      return {
+        success: true,
+        externalPostId: response.data.id,
+        publishedAt: new Date(),
+        platformResponse: {
+          platform: "facebook",
+          postId: response.data.id,
+          pageId: pageId,
+          mediaCount: attachedMedia.length,
+        },
+      };
+    } catch (error) {
+      throw new Error(`Facebook multi-photo upload error: ${error.message}`);
+    }
+  }
+
+ 
+  /**
+ * Publish to Instagram Business Account - FIXED VERSION
+ */
+async publishToInstagram(post, account) {
+  try {
+    console.log(`📸 Publishing to Instagram account: ${account.username}`);
+
+    const baseUrl = "https://graph.facebook.com/v18.0";
+
+    // Fix: Handle both string and object formats for Instagram Business ID
+    let instagramBusinessId = typeof account.profileData?.instagramBusinessAccount === 'string' 
+      ? account.profileData.instagramBusinessAccount 
+      : account.profileData?.instagramBusinessAccount?.id;
+    
+    let pageAccessToken = account.pageAccessToken || account.accessToken;
+
+    if (!instagramBusinessId) {
+      // Find Instagram Business Account
+      const pagesResponse = await axios.get(`${baseUrl}/me/accounts`, {
+        params: {
+          fields: "id,name,access_token,instagram_business_account",
+          access_token: account.accessToken,
+        },
+      });
+
+      const pages = pagesResponse.data.data || [];
+      const pageWithInstagram = pages.find(
+        (page) => page.instagram_business_account?.id
+      );
+
+      if (!pageWithInstagram) {
+        throw new Error(
+          "No Instagram Business Account found. Please connect your Instagram to a Facebook Page."
+        );
+      }
+
+      instagramBusinessId = pageWithInstagram.instagram_business_account.id;
+      pageAccessToken = pageWithInstagram.access_token;
+
+      // Fix: Store Instagram Business Account ID as string, not object
+      account.profileData = {
+        ...account.profileData,
+        instagramBusinessAccount: instagramBusinessId, // Store as string directly
+        pageId: pageWithInstagram.id,
+        pageName: pageWithInstagram.name,
+      };
+      account.pageAccessToken = pageAccessToken;
+      await account.save();
+    }
+
+    // Fix: Validate caption length (Instagram limit is 2200 characters)
+    if (post.content && post.content.length > 2200) {
+      throw new Error(`Instagram caption too long (${post.content.length} characters). Maximum is 2200 characters.`);
+    }
+
+    // Handle different content types
+    if (post.mediaUrls && post.mediaUrls.length > 0) {
+      if (post.mediaUrls.length === 1) {
+        return await this.publishInstagramSingleMedia(
+          instagramBusinessId,
+          post,
+          pageAccessToken
+        );
+      } else {
+        return await this.publishInstagramCarousel(
+          instagramBusinessId,
+          post,
+          pageAccessToken
+        );
+      }
+    } else {
+      throw new Error(
+        "Instagram requires at least one image or video to publish"
+      );
+    }
+  } catch (error) {
+    console.error(
+      "❌ Instagram publishing error:",
+      error.response?.data || error.message
+    );
+
+    if (error.response?.status === 429) {
+      throw new Error(
+        "Instagram rate limit exceeded. Please try again later."
+      );
+    } else if (
+      error.response?.status === 190 ||
+      error.response?.data?.error?.code === 190
+    ) {
+      throw new Error(
+        "Instagram access token expired. Please reconnect your account."
+      );
+    } else if (error.response?.data?.error?.code === 100) {
+      throw new Error(
+        "Instagram Business Account access error. Please check your account connection."
+      );
+    }
+
+    throw new Error(
+      `Instagram API error: ${
+        error.response?.data?.error?.message || error.message
+      }`
+    );
+  }
+}
+
+/**
+ * Publish single media to Instagram - FIXED VERSION
+ */
+async publishInstagramSingleMedia(
+  instagramBusinessId,
+  post,
+  pageAccessToken
+) {
+  try {
+    const baseUrl = "https://graph.facebook.com/v18.0";
+    const mediaUrl = post.mediaUrls[0];
+
+    // Fix: Detect media type (image vs video)
+    const isVideo = this.detectVideoFromUrl(mediaUrl);
+    
+    // Prepare media container parameters
+    const mediaParams = {
+      [isVideo ? 'video_url' : 'image_url']: mediaUrl,
+      caption: post.content,
+      access_token: pageAccessToken,
+    };
+
+    // Add media type for videos
+    if (isVideo) {
+      mediaParams.media_type = 'VIDEO';
+    }
+
+    // Step 1: Create media container
+    const containerResponse = await axios.post(
+      `${baseUrl}/${instagramBusinessId}/media`,
+      mediaParams,
+      { timeout: 15000 }
+    );
+
+    const creationId = containerResponse.data.id;
+    console.log(`📷 Instagram media container created: ${creationId}`);
+
+    // Step 2: Wait for media to be processed (longer timeout for videos)
+    const waitTime = isVideo ? 60000 : 30000; // 60s for video, 30s for image
+    await this.waitForInstagramMediaProcessing(creationId, pageAccessToken, waitTime);
+
+    // Step 3: Publish the media
+    const publishResponse = await axios.post(
+      `${baseUrl}/${instagramBusinessId}/media_publish`,
+      {
+        creation_id: creationId,
+        access_token: pageAccessToken,
+      },
+      { timeout: 15000 }
+    );
+
+    console.log(
+      `✅ Instagram post published successfully: ${publishResponse.data.id}`
+    );
+
+    return {
+      success: true,
+      externalPostId: publishResponse.data.id,
+      publishedAt: new Date(),
+      platformResponse: {
+        platform: "instagram",
+        postId: publishResponse.data.id,
+        instagramBusinessId: instagramBusinessId,
+        creationId: creationId,
+        mediaType: isVideo ? 'video' : 'image',
+      },
+    };
+  } catch (error) {
+    throw new Error(
+      `Instagram single media publish error: ${
+        error.response?.data?.error?.message || error.message
+      }`
+    );
+  }
+}
+
+/**
+ * Publish carousel (multiple media) to Instagram - FIXED VERSION
+ */
+async publishInstagramCarousel(instagramBusinessId, post, pageAccessToken) {
+  try {
+    const baseUrl = "https://graph.facebook.com/v18.0";
+    const mediaContainers = [];
+
+    // Step 1: Create containers for each media item
+    for (const mediaUrl of post.mediaUrls.slice(0, 10)) { // Instagram allows max 10 items
+      try {
+        // Fix: Detect media type for carousel items
+        const isVideo = this.detectVideoFromUrl(mediaUrl);
+        
+        const mediaParams = {
+          [isVideo ? 'video_url' : 'image_url']: mediaUrl,
+          is_carousel_item: true,
+          access_token: pageAccessToken,
+        };
+
+        // Add media type for videos in carousel
+        if (isVideo) {
+          mediaParams.media_type = 'VIDEO';
+        }
+
+        const containerResponse = await axios.post(
+          `${baseUrl}/${instagramBusinessId}/media`,
+          mediaParams
+        );
+
+        mediaContainers.push({
+          id: containerResponse.data.id,
+          isVideo: isVideo
+        });
+        console.log(`📷 Carousel item created: ${containerResponse.data.id}`);
+      } catch (mediaError) {
+        console.warn(
+          `⚠️ Failed to create carousel item for ${mediaUrl}:`,
+          mediaError.message
+        );
+        // Continue with other media
+      }
+    }
+
+    if (mediaContainers.length === 0) {
+      throw new Error("Failed to create any carousel media containers");
+    }
+
+    // Wait for all media items to process (especially important for videos)
+    for (const container of mediaContainers) {
+      const waitTime = container.isVideo ? 60000 : 30000;
+      try {
+        await this.waitForInstagramMediaProcessing(container.id, pageAccessToken, waitTime);
+      } catch (processError) {
+        console.warn(`⚠️ Media processing warning for ${container.id}:`, processError.message);
+        // Continue - might still work
+      }
+    }
+
+    // Step 2: Create carousel container
+    const carouselResponse = await axios.post(
+      `${baseUrl}/${instagramBusinessId}/media`,
+      {
+        media_type: "CAROUSEL",
+        children: mediaContainers.map(c => c.id).join(","),
+        caption: post.content,
+        access_token: pageAccessToken,
+      }
+    );
+
+    const carouselId = carouselResponse.data.id;
+    console.log(`🎠 Instagram carousel container created: ${carouselId}`);
+
+    // Step 3: Wait for carousel processing
+    await this.waitForInstagramMediaProcessing(carouselId, pageAccessToken, 30000);
+
+    // Step 4: Publish the carousel
+    const publishResponse = await axios.post(
+      `${baseUrl}/${instagramBusinessId}/media_publish`,
+      {
+        creation_id: carouselId,
+        access_token: pageAccessToken,
+      }
+    );
+
+    console.log(
+      `✅ Instagram carousel published successfully: ${publishResponse.data.id}`
+    );
+
+    return {
+      success: true,
+      externalPostId: publishResponse.data.id,
+      publishedAt: new Date(),
+      platformResponse: {
+        platform: "instagram",
+        postId: publishResponse.data.id,
+        instagramBusinessId: instagramBusinessId,
+        carouselId: carouselId,
+        mediaCount: mediaContainers.length,
+      },
+    };
+  } catch (error) {
+    throw new Error(
+      `Instagram carousel publish error: ${
+        error.response?.data?.error?.message || error.message
+      }`
+    );
+  }
+}
+
+/**
+ * Wait for Instagram media processing to complete - IMPROVED VERSION
+ */
+async waitForInstagramMediaProcessing(
+  creationId,
+  pageAccessToken,
+  maxWaitTime = 30000
+) {
+  const baseUrl = "https://graph.facebook.com/v18.0";
+  const startTime = Date.now();
+  const checkInterval = 2000; // Check every 2 seconds
+
+  while (Date.now() - startTime < maxWaitTime) {
+    try {
+      const statusResponse = await axios.get(`${baseUrl}/${creationId}`, {
+        params: {
+          fields: "status_code",
+          access_token: pageAccessToken,
+        },
+        timeout: 5000,
+      });
+
+      const statusCode = statusResponse.data.status_code;
+
+      if (statusCode === "FINISHED") {
+        console.log(`✅ Instagram media processing completed: ${creationId}`);
+        return;
+      } else if (statusCode === "ERROR") {
+        throw new Error(`Instagram media processing failed for ${creationId}`);
+      }
+
+      // Still processing, wait and retry
+      console.log(`⏳ Instagram media still processing (${statusCode})...`);
+      await new Promise((resolve) => setTimeout(resolve, checkInterval));
+    } catch (error) {
+      // Fix: Better error handling - don't assume media is ready on 400 errors
+      if (error.response?.status === 400) {
+        const errorMessage = error.response?.data?.error?.message || error.message;
+        
+        // Only assume ready if it's a specific "not found" type error that indicates completion
+        if (errorMessage.includes('does not exist') || errorMessage.includes('invalid')) {
+          console.log(`⚠️ Status check suggests media may be processed: ${errorMessage}`);
+          return;
+        }
+        
+        // Otherwise, it's likely a real error
+        throw new Error(`Media processing status check failed: ${errorMessage}`);
+      }
+      throw error;
+    }
+  }
+
+  throw new Error(`Instagram media processing timeout after ${maxWaitTime}ms. The media may still be processing.`);
+}
+
+/**
+ * Helper method to detect video from URL - NEW
+ */
+detectVideoFromUrl(mediaUrl) {
+  // Common video file extensions
+  const videoExtensions = /\.(mp4|mov|avi|wmv|flv|webm|m4v|3gp|mkv)(\?.*)?$/i;
+  return videoExtensions.test(mediaUrl);
+}
+
+
+  /**
+   * Categorize errors for better handling
+   */
+  categorizeError(error) {
+    const message = error.message?.toLowerCase() || "";
+    const status = error.response?.status;
+
+    if (status === 429 || message.includes("rate limit")) {
+      return "rate_limit";
+    } else if (
+      status === 401 ||
+      status === 190 ||
+      message.includes("authentication") ||
+      message.includes("unauthorized")
+    ) {
+      return "authentication";
+    } else if (
+      status === 403 ||
+      message.includes("permission") ||
+      message.includes("forbidden")
+    ) {
+      return "permissions";
+    } else if (
+      message.includes("network") ||
+      message.includes("timeout") ||
+      error.code === "ECONNABORTED"
+    ) {
+      return "network";
+    } else if (message.includes("duplicate")) {
+      return "duplicate_content";
+    } else if (message.includes("policy") || message.includes("violat")) {
+      return "content_policy";
+    }
+
+    return "unknown";
+  }
+   
   async validateSocialMediaCredentials(
     platform,
     apiKey,
@@ -929,12 +1662,13 @@ class SocialMediaService {
         status: "error",
         message: error.message,
         lastChecked: new Date().toISOString(),
+        errorCategory: this.categorizeError(error),
       };
     }
   }
 
   /**
-   * Enhanced analytics fetching with error handling
+   * Enhanced analytics fetching with real API calls where possible
    */
   async fetchPlatformAnalytics(
     platform,
@@ -1127,12 +1861,22 @@ const socialMediaService = new SocialMediaService();
 // Export both the class and instance for backward compatibility
 module.exports = {
   SocialMediaService,
+
+  // Real API stats syncing (RESTORED)
   syncSocialMediaStats:
     socialMediaService.syncSocialMediaStats.bind(socialMediaService),
+
+  // Analytics methods (Real API where possible)
   fetchPlatformAnalytics:
     socialMediaService.fetchPlatformAnalytics.bind(socialMediaService),
+
+  // Validation and connection methods
   validateSocialMediaCredentials:
     socialMediaService.validateSocialMediaCredentials.bind(socialMediaService),
   getConnectionStatus:
     socialMediaService.getConnectionStatus.bind(socialMediaService),
+
+  // Publishing methods (NEW)
+  publishToSocialMedia:
+    socialMediaService.publishToSocialMedia.bind(socialMediaService),
 };
