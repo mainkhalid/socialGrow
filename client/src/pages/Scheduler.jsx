@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback, useMemo } from "react";
 import axios from "axios";
 import { useAuth } from "../context/AuthContext";
 import { usePlatform } from "../context/PlatformContext";
@@ -17,8 +17,36 @@ import {
   Info,
   Zap,
   PlayCircle,
-  PauseCircle
+  PauseCircle,
+  Upload,
+  X,
+  Image as ImageIcon,
+  Video,
+  File
 } from "lucide-react";
+
+const platformNames = {
+  twitter: "Twitter",
+  instagram: "Instagram", 
+  facebook: "Facebook",
+  linkedin: "LinkedIn",
+};
+
+const platformIcons = {
+  twitter: <div className="w-6 h-6 bg-blue-500 rounded-full flex items-center justify-center text-white text-xs">T</div>,
+  instagram: <div className="w-6 h-6 bg-pink-500 rounded-full flex items-center justify-center text-white text-xs">I</div>,
+  facebook: <div className="w-6 h-6 bg-blue-600 rounded-full flex items-center justify-center text-white text-xs">F</div>,
+  linkedin: <div className="w-6 h-6 bg-blue-700 rounded-full flex items-center justify-center text-white text-xs">L</div>,
+};
+
+// Helper function to format file size
+const formatFileSize = (bytes) => {
+  if (bytes === 0) return '0 Bytes';
+  const k = 1024;
+  const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+};
 
 const Scheduler = () => {
   const { platform } = usePlatform();
@@ -35,45 +63,68 @@ const Scheduler = () => {
   const [schedulerStats, setSchedulerStats] = useState(null);
   const [publishingReport, setPublishingReport] = useState(null);
   const [refreshingStats, setRefreshingStats] = useState(false);
+  
+  // Media upload states
+  const [uploadingMedia, setUploadingMedia] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
+  const [uploadConfig, setUploadConfig] = useState(null);
+
   const [newPost, setNewPost] = useState({
     content: "",
     date: "",
     time: "",
-    mediaUrls: [],
+    mediaFiles: [],
     accountId: "",
   });
 
-  const platformNames = {
-    twitter: "Twitter",
-    instagram: "Instagram", 
-    facebook: "Facebook",
-    linkedin: "LinkedIn",
-  };
+  const getStatusIcon = useCallback((post) => {
+    switch (post.status) {
+      case "published":
+        return <CheckCircle size={16} className="text-green-500" title="Published successfully" />;
+      case "failed":
+        return <AlertCircle size={16} className="text-red-500" title={`Failed: ${post.publishError || 'Unknown error'}`} />;
+      case "scheduled":
+        return <Clock size={16} className="text-blue-500" title="Waiting to be published" />;
+      default:
+        return <WifiOff size={16} className="text-gray-400" title="Unknown status" />;
+    }
+  }, []);
 
-  const platformIcons = {
-    twitter: <div className="w-6 h-6 bg-blue-500 rounded-full flex items-center justify-center text-white text-xs">T</div>,
-    instagram: <div className="w-6 h-6 bg-pink-500 rounded-full flex items-center justify-center text-white text-xs">I</div>,
-    facebook: <div className="w-6 h-6 bg-blue-600 rounded-full flex items-center justify-center text-white text-xs">F</div>,
-    linkedin: <div className="w-6 h-6 bg-blue-700 rounded-full flex items-center justify-center text-white text-xs">L</div>,
-  };
+  const getAccountHealthIcon = useCallback((account) => {
+    if (!account.connected) {
+      return <WifiOff size={16} className="text-red-500" title="Disconnected" />;
+    }
+    if (account.connectionHealthy === false) {
+      return <AlertTriangle size={16} className="text-yellow-500" title="Connection issues" />;
+    }
+    return <CheckCircle size={16} className="text-green-500" title="Connected and healthy" />;
+  }, []);
+  
+  const getMediaIcon = useCallback((resourceType, format) => {
+    if (resourceType === 'video') {
+      return <Video size={16} className="text-blue-500" />;
+    }
+    if (['jpg', 'jpeg', 'png', 'gif', 'webp'].includes(format?.toLowerCase())) {
+      return <ImageIcon size={16} className="text-green-500" />;
+    }
+    return <File size={16} className="text-gray-500" />;
+  }, []);
 
-  // Load accounts with health status
-  const loadAccounts = async () => {
+  const availableAccounts = useMemo(() => {
+    return accounts.filter((acc) => acc.platform?.toLowerCase() === platform.toLowerCase());
+  }, [accounts, platform]);
+
+  const healthyAccounts = useMemo(() => {
+    return availableAccounts.filter(acc => acc.connected && acc.connectionHealthy !== false);
+  }, [availableAccounts]);
+  
+  const loadAccounts = useCallback(async () => {
     try {
       const response = await axios.get("/api/accounts");
-      let accountsData = [];
-
-      if (Array.isArray(response.data)) {
-        accountsData = response.data;
-      } else if (response.data.accounts) {
-        accountsData = response.data.accounts;
-      } else if (response.data.data) {
-        accountsData = response.data.data;
-      }
-
+      let accountsData = response.data.accounts || response.data.data || response.data || [];
+      
       setAccounts(accountsData);
 
-      // Auto-select first healthy account matching current platform
       const platformAccount = accountsData.find(
         (acc) => acc.platform?.toLowerCase() === platform.toLowerCase() && 
                  acc.connected && 
@@ -88,10 +139,9 @@ const Scheduler = () => {
     } catch (err) {
       setError(err.response?.data?.message || err.message || "Failed to load accounts");
     }
-  };
+  }, [platform]);
 
-  // Load scheduled posts with enhanced status handling
-  const loadPosts = async () => {
+  const loadPosts = useCallback(async () => {
     try {
       const queryParams = new URLSearchParams({
         platform: platform,
@@ -110,10 +160,9 @@ const Scheduler = () => {
     } catch (err) {
       setError(err.response?.data?.message || err.message || "Failed to load posts");
     }
-  };
-
-  // Load scheduler statistics
-  const loadSchedulerStats = async () => {
+  }, [platform, pagination.limit, pagination.offset]);
+  
+  const loadSchedulerStats = useCallback(async () => {
     try {
       setRefreshingStats(true);
       const [statsResponse, reportResponse] = await Promise.all([
@@ -128,88 +177,178 @@ const Scheduler = () => {
     } finally {
       setRefreshingStats(false);
     }
-  };
+  }, []);
+  
+  const loadUploadConfig = useCallback(async () => {
+    if (platform && isAuthenticated) {
+      try {
+        const response = await axios.get(`/api/media/config?platform=${platform}`);
+        setUploadConfig(response.data);
+      } catch (error) {
+        console.error('Failed to load upload config:', error);
+      }
+    }
+  }, [platform, isAuthenticated]);
 
-  const loadInitialData = async () => {
-    try {
-      setLoading(true);
-      setError(null);
-      await Promise.all([loadAccounts(), loadPosts(), loadSchedulerStats()]);
-    } finally {
+  const loadInitialData = useCallback(async () => {
+    if (isAuthenticated) {
+      try {
+        setLoading(true);
+        setError(null);
+        await Promise.all([loadAccounts(), loadPosts(), loadSchedulerStats(), loadUploadConfig()]);
+      } finally {
+        setLoading(false);
+      }
+    } else {
       setLoading(false);
     }
-  };
+  }, [isAuthenticated, loadAccounts, loadPosts, loadSchedulerStats, loadUploadConfig]);
 
-  // Manual trigger for testing
-  const triggerScheduler = async () => {
+  useEffect(() => {
+    loadInitialData();
+  }, [platform, loadInitialData]);
+
+  useEffect(() => {
+    if (showStatsModal) {
+      const interval = setInterval(loadSchedulerStats, 30000);
+      return () => clearInterval(interval);
+    }
+  }, [showStatsModal, loadSchedulerStats]);
+
+  const uploadMediaFiles = async (files) => {
+    setUploadingMedia(true);
+    setUploadProgress(0);
+    
     try {
-      setRefreshingStats(true);
-      const response = await axios.post("/api/scheduler/trigger");
-      setSchedulerStats(response.data);
-      await loadPosts(); // Refresh posts to see any changes
-      setError(null);
-    } catch (err) {
-      setError(err.response?.data?.message || "Failed to trigger scheduler");
+      if (!uploadConfig) {
+        throw new Error('Upload configuration not loaded');
+      }
+
+      const formData = new FormData();
+      Array.from(files).forEach(file => formData.append('files', file));
+      formData.append('platform', platform);
+
+      const response = await axios.post('/api/media/upload', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+        onUploadProgress: (progressEvent) => {
+          const progress = Math.round((progressEvent.loaded / progressEvent.total) * 100);
+          setUploadProgress(progress);
+        },
+      });
+
+      if (!response.data.success) {
+        throw new Error(response.data.message || 'Upload failed');
+      }
+
+      return response.data.files;
+    } catch (error) {
+      throw new Error(`Upload failed: ${error.response?.data?.message || error.message}`);
     } finally {
-      setRefreshingStats(false);
+      setUploadingMedia(false);
+      setUploadProgress(0);
     }
   };
 
-  // Start/stop scheduler
-  const toggleScheduler = async (action) => {
+  const validateMediaFile = (file) => {
+    if (!uploadConfig) return { valid: false, message: 'Upload configuration not loaded' };
+
+    const maxSizes = uploadConfig.maxFileSize[platform];
+    if (!maxSizes) return { valid: false, message: 'Unsupported platform' };
+
+    const isImage = file.type.startsWith('image/');
+    const isVideo = file.type.startsWith('video/');
+
+    if (!isImage && !isVideo) {
+      return { valid: false, message: `Only images and videos are supported` };
+    }
+
+    const maxSize = isVideo ? maxSizes.video : maxSizes.image;
+    const fileSizeMB = file.size / (1024 * 1024);
+
+    if (fileSizeMB > maxSize) {
+      return { 
+        valid: false, 
+        message: `${isImage ? 'Image' : 'Video'} must be less than ${maxSize}MB (current: ${fileSizeMB.toFixed(1)}MB)` 
+      };
+    }
+    return { valid: true };
+  };
+
+  const handleFileSelect = async (event) => {
+    const files = Array.from(event.target.files);
+    if (files.length === 0 || !uploadConfig) {
+      !uploadConfig && setError('Upload configuration not loaded. Please try again.');
+      return;
+    }
+
+    const maxFiles = uploadConfig.maxFiles[platform];
+    const currentMediaCount = newPost.mediaFiles.length;
+    const totalFiles = currentMediaCount + files.length;
+    
+    if (totalFiles > maxFiles) {
+      setError(`${platformNames[platform]} allows a maximum of ${maxFiles} media files per post`);
+      return;
+    }
+
+    for (const file of files) {
+      const validation = validateMediaFile(file);
+      if (!validation.valid) {
+        setError(`${file.name}: ${validation.message}`);
+        return;
+      }
+    }
+
+    if (uploadConfig.userStorage) {
+      const totalSizeMB = files.reduce((sum, file) => sum + (file.size / (1024 * 1024)), 0);
+      const availableStorageMB = uploadConfig.userStorage.limit - uploadConfig.userStorage.used;
+      
+      if (totalSizeMB > availableStorageMB) {
+        setError(`Not enough storage space. ${totalSizeMB.toFixed(1)}MB required, ${availableStorageMB.toFixed(1)}MB available.`);
+        return;
+      }
+    }
+
     try {
-      setRefreshingStats(true);
-      await axios.post(`/api/scheduler/${action}`);
-      await loadSchedulerStats();
+      const uploadedFiles = await uploadMediaFiles(files);
+      setNewPost(prev => ({ ...prev, mediaFiles: [...prev.mediaFiles, ...uploadedFiles] }));
       setError(null);
-    } catch (err) {
-      setError(err.response?.data?.message || `Failed to ${action} scheduler`);
-    } finally {
-      setRefreshingStats(false);
+      if (uploadedFiles.length < files.length) {
+        setError(`${uploadedFiles.length} of ${files.length} files uploaded successfully. Some files failed.`);
+      }
+    } catch (error) {
+      setError(error.message);
     }
   };
 
-  // Create new post with better validation
+  const removeMediaFile = async (index) => {
+    const mediaFile = newPost.mediaFiles[index];
+    if (mediaFile && mediaFile.publicId) {
+      try {
+        await axios.delete('/api/media', { data: { publicId: mediaFile.publicId, resourceType: mediaFile.resourceType } });
+      } catch (error) {
+        console.error('Failed to delete media from Cloudinary:', error);
+      }
+    }
+    setNewPost(prev => ({ ...prev, mediaFiles: prev.mediaFiles.filter((_, i) => i !== index) }));
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
 
-    if (!selectedAccountId) {
-      setError("Please select an account to schedule the post");
-      return;
-    }
-
     const selectedAccount = accounts.find((acc) => acc._id === selectedAccountId);
-    if (!selectedAccount) {
-      setError("Selected account not found");
+    if (!selectedAccount || !selectedAccount.connected || selectedAccount.connectionHealthy === false) {
+      setError("Please select a healthy, connected account.");
       return;
     }
 
-    // Check account health
-    if (!selectedAccount.connected) {
-      setError("Selected account is disconnected. Please reconnect it first.");
-      return;
-    }
-
-    if (selectedAccount.connectionHealthy === false) {
-      setError("Selected account has connection issues. Please check account settings.");
-      return;
-    }
-
-    // Validate content length for platform
-    const maxLengths = {
-      twitter: 280,
-      instagram: 2200,
-      facebook: 63206
-    };
-
+    const maxLengths = { twitter: 280, instagram: 2200, facebook: 63206, linkedin: 3000 };
     const maxLength = maxLengths[platform] || 63206;
     if (newPost.content.length > maxLength) {
       setError(`Content exceeds ${maxLength} character limit for ${platformNames[platform]}`);
       return;
     }
 
-    // Instagram requires media
-    if (platform === 'instagram' && (!newPost.mediaUrls || newPost.mediaUrls.length === 0)) {
+    if (platform === 'instagram' && (!newPost.mediaFiles || newPost.mediaFiles.length === 0)) {
       setError("Instagram posts require at least one image or video");
       return;
     }
@@ -225,7 +364,7 @@ const Scheduler = () => {
       const postData = {
         accountId: selectedAccountId,
         content: newPost.content.trim(),
-        mediaUrls: newPost.mediaUrls.filter((url) => url.trim()),
+        mediaFiles: newPost.mediaFiles,
         scheduledDate: scheduledDate.toISOString(),
         platform: selectedAccount.platform.toLowerCase(),
       };
@@ -234,7 +373,7 @@ const Scheduler = () => {
       const createdPost = response.data;
 
       setScheduledPosts((prev) => [createdPost, ...prev]);
-      setNewPost({ content: "", date: "", time: "", mediaUrls: [], accountId: selectedAccountId });
+      setNewPost({ content: "", date: "", time: "", mediaFiles: [], accountId: selectedAccountId });
       setShowModal(false);
       setError(null);
     } catch (err) {
@@ -244,7 +383,6 @@ const Scheduler = () => {
     }
   };
 
-  // Delete post
   const deletePost = async (postId) => {
     if (!window.confirm("Are you sure you want to delete this scheduled post?")) return;
 
@@ -260,7 +398,6 @@ const Scheduler = () => {
     }
   };
 
-  // Retry failed post
   const retryPost = async (postId) => {
     try {
       setLoading(true);
@@ -278,21 +415,32 @@ const Scheduler = () => {
     }
   };
 
-  // Effects
-  useEffect(() => {
-    if (isAuthenticated) loadInitialData();
-    else setLoading(false);
-  }, [platform, isAuthenticated]);
-
-  // Auto-refresh stats every 30 seconds when modal is open
-  useEffect(() => {
-    if (showStatsModal) {
-      const interval = setInterval(loadSchedulerStats, 30000);
-      return () => clearInterval(interval);
+  const triggerScheduler = async () => {
+    try {
+      setRefreshingStats(true);
+      await axios.post("/api/scheduler/trigger");
+      await Promise.all([loadPosts(), loadSchedulerStats()]);
+      setError(null);
+    } catch (err) {
+      setError(err.response?.data?.message || "Failed to trigger scheduler");
+    } finally {
+      setRefreshingStats(false);
     }
-  }, [showStatsModal]);
+  };
 
-  // Helpers
+  const toggleScheduler = async (action) => {
+    try {
+      setRefreshingStats(true);
+      await axios.post(`/api/scheduler/${action}`);
+      await loadSchedulerStats();
+      setError(null);
+    } catch (err) {
+      setError(err.response?.data?.message || `Failed to ${action} scheduler`);
+    } finally {
+      setRefreshingStats(false);
+    }
+  };
+
   const formatDateTime = (dateString) => {
     const date = new Date(dateString);
     return {
@@ -301,27 +449,76 @@ const Scheduler = () => {
     };
   };
 
-  const getStatusIcon = (post) => {
-    switch (post.status) {
-      case "published":
-        return <CheckCircle size={16} className="text-green-500" title="Published successfully" />;
-      case "failed":
-        return <AlertCircle size={16} className="text-red-500" title={`Failed: ${post.publishError || 'Unknown error'}`} />;
-      case "scheduled":
-        return <Clock size={16} className="text-blue-500" title="Waiting to be published" />;
-      default:
-        return <WifiOff size={16} className="text-gray-400" title="Unknown status" />;
-    }
-  };
+  const MediaPreview = ({ media, index, onRemove }) => (
+    <div className="flex items-center justify-between p-2 bg-gray-50 rounded-lg">
+      <div className="flex items-center space-x-3">
+        <div className="flex-shrink-0 w-12 h-12 rounded overflow-hidden bg-gray-200">
+          {media.resourceType === 'video' ? (
+            <div className="w-full h-full flex items-center justify-center">
+              <Video size={20} className="text-blue-500" />
+            </div>
+          ) : (
+            <img 
+              src={media.thumbnails?.[0]?.url || media.url}
+              alt={media.originalName} 
+              className="w-full h-full object-cover" 
+            />
+          )}
+        </div>
+        <div className="flex-1 min-w-0">
+          <p className="text-sm font-medium text-gray-900 truncate">
+            {media.originalName}
+          </p>
+          <div className="flex items-center space-x-2 text-xs text-gray-500">
+            <span>{media.format?.toUpperCase()}</span>
+            <span>•</span>
+            <span>{formatFileSize(media.bytes)}</span>
+            {media.width && media.height && (
+              <>
+                <span>•</span>
+                <span>{media.width}×{media.height}</span>
+              </>
+            )}
+          </div>
+        </div>
+      </div>
+      <button
+        type="button"
+        onClick={() => onRemove(index)}
+        className="flex-shrink-0 p-1 text-red-400 hover:text-red-600"
+        title="Remove file"
+      >
+        <X size={16} />
+      </button>
+    </div>
+  );
 
-  const getAccountHealthIcon = (account) => {
-    if (!account.connected) {
-      return <WifiOff size={16} className="text-red-500" title="Disconnected" />;
-    }
-    if (account.connectionHealthy === false) {
-      return <AlertTriangle size={16} className="text-yellow-500" title="Connection issues" />;
-    }
-    return <CheckCircle size={16} className="text-green-500" title="Connected and healthy" />;
+  const StorageUsageIndicator = () => {
+    if (!uploadConfig?.userStorage) return null;
+
+    const { used, limit } = uploadConfig.userStorage;
+    const percentage = (used / limit) * 100;
+
+    return (
+      <div className="mt-2 p-2 bg-gray-50 rounded text-xs">
+        <div className="flex justify-between items-center mb-1">
+          <span className="text-gray-600">Storage Used</span>
+          <span className={percentage > 80 ? 'text-red-600' : 'text-gray-800'}>
+            {used.toFixed(1)} / {limit}MB
+          </span>
+        </div>
+        <div className="w-full bg-gray-200 rounded-full h-1">
+          <div 
+            className={`h-1 rounded-full transition-all ${
+              percentage > 90 ? 'bg-red-500' : 
+              percentage > 75 ? 'bg-yellow-500' : 
+              'bg-blue-500'
+            }`}
+            style={{ width: `${Math.min(percentage, 100)}%` }}
+          />
+        </div>
+      </div>
+    );
   };
 
   // Early returns
@@ -346,10 +543,6 @@ const Scheduler = () => {
       </div>
     );
   }
-
-  // Filter accounts
-  const availableAccounts = accounts.filter((acc) => acc.platform?.toLowerCase() === platform.toLowerCase());
-  const healthyAccounts = availableAccounts.filter(acc => acc.connected && acc.connectionHealthy !== false);
 
   return (
     <div className="p-6 max-w-7xl mx-auto">
@@ -381,10 +574,10 @@ const Scheduler = () => {
             className={`px-4 py-2 rounded-lg flex items-center disabled:opacity-50 disabled:cursor-not-allowed
               ${
                 platform === "twitter"
-                  ? "bg-blue-500 hover:bg-blue-600 disabled:bg-blue-300"
+                  ? "bg-blue-500 hover:bg-blue-600"
                   : platform === "instagram"
-                  ? "bg-pink-500 hover:bg-pink-600 disabled:bg-pink-300"
-                  : "bg-indigo-500 hover:bg-indigo-600 disabled:bg-indigo-300"
+                  ? "bg-pink-500 hover:bg-pink-600"
+                  : "bg-indigo-500 hover:bg-indigo-600"
               } text-white`}
           >
             <Plus size={18} className="mr-1" />
@@ -405,7 +598,6 @@ const Scheduler = () => {
         </div>
       )}
 
-      {/* Account Health Warning */}
       {availableAccounts.length > 0 && healthyAccounts.length === 0 && (
         <div className="mb-6 p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
           <div className="flex items-start">
@@ -420,7 +612,6 @@ const Scheduler = () => {
         </div>
       )}
 
-      {/* Posts List */}
       <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
         <div className="p-4 border-b border-gray-200 bg-gray-50 flex justify-between items-center">
           <div>
@@ -462,17 +653,27 @@ const Scheduler = () => {
                     <div className="flex items-start justify-between">
                       <div className="flex-1 mr-4">
                         <p className="text-gray-800 mb-2">{post.content}</p>
-
-                        {post.mediaUrls?.length > 0 && (
-                          <div className="mb-2 flex gap-2">
-                            {post.mediaUrls.slice(0, 3).map((url, index) => (
-                              <div key={index} className="rounded-lg overflow-hidden w-16 h-16">
-                                <img src={url} alt={`Media ${index + 1}`} className="w-full h-full object-cover" />
+                        {post.mediaFiles?.length > 0 && (
+                          <div className="mb-2 flex flex-wrap gap-2">
+                            {post.mediaFiles.slice(0, 4).map((media, index) => (
+                              <div key={index} className="relative rounded-lg overflow-hidden w-16 h-16 bg-gray-100">
+                                {media.resourceType === 'video' ? (
+                                  <div className="w-full h-full flex items-center justify-center">
+                                    <Video size={24} className="text-blue-500" />
+                                  </div>
+                                ) : (
+                                  <img 
+                                    src={media.url} 
+                                    alt={media.originalName || `Media ${index + 1}`} 
+                                    className="w-full h-full object-cover" 
+                                  />
+                                )}
+                                <div className="absolute inset-0 bg-black bg-opacity-0 hover:bg-opacity-10 transition-opacity" />
                               </div>
                             ))}
-                            {post.mediaUrls.length > 3 && (
+                            {post.mediaFiles.length > 4 && (
                               <div className="w-16 h-16 rounded-lg bg-gray-100 flex items-center justify-center text-xs text-gray-500">
-                                +{post.mediaUrls.length - 3}
+                                +{post.mediaFiles.length - 4}
                               </div>
                             )}
                           </div>
@@ -500,8 +701,6 @@ const Scheduler = () => {
                             </span>
                           )}
                         </div>
-
-                        {/* Error message for failed posts */}
                         {post.status === 'failed' && post.publishError && (
                           <div className="mt-2 p-2 bg-red-50 border border-red-200 rounded text-sm text-red-700">
                             <strong>Error:</strong> {post.publishError}
@@ -538,13 +737,11 @@ const Scheduler = () => {
         </div>
       </div>
 
-      {/* New Post Modal */}
       {showModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-white rounded-xl p-6 max-w-lg w-full max-h-[90vh] overflow-y-auto">
             <h2 className="text-xl font-bold mb-4">Schedule New Post</h2>
             <form onSubmit={handleSubmit}>
-              {/* Account Selection */}
               <div className="mb-4">
                 <label className="block text-sm font-medium text-gray-700 mb-1">Account</label>
                 <select
@@ -569,17 +766,13 @@ const Scheduler = () => {
                     </option>
                   ))}
                 </select>
-                {selectedAccountId && (() => {
-                  const selectedAccount = accounts.find(acc => acc._id === selectedAccountId);
-                  return selectedAccount?.syncError && (
-                    <p className="text-xs text-yellow-600 mt-1">
-                      ⚠️ {selectedAccount.syncError}
-                    </p>
-                  );
-                })()}
+                {selectedAccountId && accounts.find(acc => acc._id === selectedAccountId)?.syncError && (
+                  <p className="text-xs text-yellow-600 mt-1">
+                    ⚠️ {accounts.find(acc => acc._id === selectedAccountId)?.syncError}
+                  </p>
+                )}
               </div>
 
-              {/* Content */}
               <div className="mb-4">
                 <label className="block text-sm font-medium text-gray-700 mb-1">Content</label>
                 <textarea
@@ -601,7 +794,78 @@ const Scheduler = () => {
                 </div>
               </div>
 
-              {/* Date & Time */}
+              <div className="mb-4">
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Media {platform === 'instagram' && <span className="text-red-500">*</span>}
+                </label>
+                
+                <div className="border-2 border-dashed border-gray-300 rounded-lg p-4 hover:border-gray-400 transition-colors">
+                  <input
+                    type="file"
+                    id="media-upload"
+                    multiple
+                    accept="image/*,video/*"
+                    onChange={handleFileSelect}
+                    className="hidden"
+                    disabled={uploadingMedia}
+                  />
+                  <label
+                    htmlFor="media-upload"
+                    className="cursor-pointer flex flex-col items-center justify-center text-gray-500 hover:text-gray-700"
+                  >
+                    <Upload size={24} className="mb-2" />
+                    <span className="text-sm font-medium">
+                      {uploadingMedia ? 'Uploading...' : 'Click to upload media'}
+                    </span>
+                    <span className="text-xs mt-1">
+                      Images and videos supported (max 50MB per file)
+                    </span>
+                  </label>
+                </div>
+
+                {uploadingMedia && (
+                  <div className="mt-2">
+                    <div className="flex justify-between text-xs text-gray-600 mb-1">
+                      <span>Uploading...</span>
+                      <span>{uploadProgress}%</span>
+                    </div>
+                    <div className="w-full bg-gray-200 rounded-full h-2">
+                      <div
+                        className="bg-blue-500 h-2 rounded-full transition-all duration-300"
+                        style={{ width: `${uploadProgress}%` }}
+                      ></div>
+                    </div>
+                  </div>
+                )}
+
+                {newPost.mediaFiles.length > 0 && (
+                  <div className="mt-3">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-sm font-medium text-gray-700">
+                        Uploaded Media ({newPost.mediaFiles.length})
+                      </span>
+                      <span className="text-xs text-gray-500">
+                        {platform === 'twitter' && 'Max 4 files'}
+                        {platform === 'instagram' && 'Max 10 files'}
+                        {platform === 'facebook' && 'Max 10 files'}
+                        {platform === 'linkedin' && 'Max 1 file'}
+                      </span>
+                    </div>
+                    <div className="space-y-2 max-h-32 overflow-y-auto">
+                      {newPost.mediaFiles.map((media, index) => (
+                        <MediaPreview key={index} media={media} index={index} onRemove={removeMediaFile} />
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {platform === 'instagram' && newPost.mediaFiles.length === 0 && (
+                  <p className="text-xs text-red-500 mt-1">
+                    Instagram requires at least one image or video
+                  </p>
+                )}
+              </div>
+
               <div className="grid grid-cols-2 gap-4 mb-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Date</label>
@@ -626,44 +890,28 @@ const Scheduler = () => {
                 </div>
               </div>
 
-              {/* Media URLs */}
-              <div className="mb-4">
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Media URLs {platform === 'instagram' && <span className="text-red-500">*</span>}
-                </label>
-                <input
-                  type="url"
-                  className="w-full border border-gray-300 rounded-lg p-2"
-                  value={newPost.mediaUrls[0] || ""}
-                  onChange={(e) =>
-                    setNewPost({ ...newPost, mediaUrls: e.target.value ? [e.target.value] : [] })
-                  }
-                  placeholder="https://example.com/image.jpg"
-                  required={platform === 'instagram'}
-                />
-                {platform === 'instagram' && (
-                  <p className="text-xs text-gray-500 mt-1">
-                    Instagram requires at least one image or video
-                  </p>
-                )}
-              </div>
-
-              {/* Action Buttons */}
               <div className="flex justify-end space-x-2">
                 <button
                   type="button"
                   onClick={() => {
                     setShowModal(false);
                     setError(null);
+                    setNewPost({ 
+                      content: "", 
+                      date: "", 
+                      time: "", 
+                      mediaFiles: [], 
+                      accountId: selectedAccountId 
+                    });
                   }}
                   className="px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50"
-                  disabled={loading}
+                  disabled={loading || uploadingMedia}
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  disabled={loading || !selectedAccountId}
+                  disabled={loading || uploadingMedia || !selectedAccountId}
                   className={`px-4 py-2 rounded-lg text-white disabled:opacity-50 disabled:cursor-not-allowed flex items-center
                     ${
                       platform === "twitter"
@@ -678,6 +926,11 @@ const Scheduler = () => {
                       <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
                       Scheduling...
                     </>
+                  ) : uploadingMedia ? (
+                    <>
+                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                      Uploading...
+                    </>
                   ) : (
                     "Schedule Post"
                   )}
@@ -688,7 +941,6 @@ const Scheduler = () => {
         </div>
       )}
 
-      {/* Stats Modal */}
       {showStatsModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-white rounded-xl p-6 max-w-4xl w-full max-h-[90vh] overflow-y-auto">
@@ -711,9 +963,8 @@ const Scheduler = () => {
               </div>
             </div>
 
-            {schedulerStats && (
+            {schedulerStats ? (
               <div className="space-y-6">
-                {/* Scheduler Controls */}
                 <div className="flex gap-2 p-4 bg-gray-50 rounded-lg">
                   <button
                     onClick={() => toggleScheduler(schedulerStats.schedulerActive ? 'stop' : 'start')}
@@ -735,7 +986,6 @@ const Scheduler = () => {
                   </button>
                 </div>
 
-                {/* Stats Grid */}
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                   <div className="p-4 bg-blue-50 rounded-lg">
                     <p className="text-sm text-blue-600">Total Runs</p>
@@ -755,7 +1005,6 @@ const Scheduler = () => {
                   </div>
                 </div>
 
-                {/* Error Breakdown */}
                 <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
                   <div className="p-3 bg-gray-50 rounded-lg">
                     <p className="text-sm text-gray-600">Rate Limits</p>
@@ -783,7 +1032,6 @@ const Scheduler = () => {
                   </div>
                 </div>
 
-                {/* Status Info */}
                 <div className="p-4 bg-gray-50 rounded-lg">
                   <h3 className="font-semibold mb-2">Scheduler Status</h3>
                   <div className="grid grid-cols-2 gap-4 text-sm">
@@ -806,7 +1054,6 @@ const Scheduler = () => {
                   </div>
                 </div>
 
-                {/* Publishing Report */}
                 {publishingReport && (
                   <div>
                     <h3 className="font-semibold mb-3">Publishing Report ({publishingReport.timeframe})</h3>
@@ -826,7 +1073,6 @@ const Scheduler = () => {
                       </div>
                     </div>
 
-                    {/* Recent Failures */}
                     {publishingReport.failed?.length > 0 && (
                       <div className="mb-4">
                         <h4 className="font-medium mb-2 text-red-700">Recent Failures</h4>
@@ -849,7 +1095,6 @@ const Scheduler = () => {
                       </div>
                     )}
 
-                    {/* Upcoming Posts */}
                     {publishingReport.upcoming?.length > 0 && (
                       <div>
                         <h4 className="font-medium mb-2 text-blue-700">Upcoming Posts</h4>
@@ -873,9 +1118,7 @@ const Scheduler = () => {
                   </div>
                 )}
               </div>
-            )}
-
-            {!schedulerStats && (
+            ) : (
               <div className="text-center py-8">
                 <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500 mx-auto mb-2"></div>
                 <p className="text-gray-600">Loading scheduler statistics...</p>

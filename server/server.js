@@ -14,6 +14,7 @@ const { authenticateToken } = require('./middleware/auth.middleware');
 const { initScheduler } = require('./services/scheduler.service');
 const { getConnectionStatus, validateSocialMediaCredentials } = require('./services/social-media.service');
 const Account = require('./models/account.model');
+const mediaRoutes = require('./routes/media.routes');
 
 
 const app = express();
@@ -166,6 +167,7 @@ app.use('/api/accounts', authenticateToken, accountsRoutes);
 app.use('/api/scheduler', authenticateToken, schedulerRoutes);
 app.use('/api/analytics', authenticateToken, analyticsRoutes);
 app.use('/api/ideas', authenticateToken, ideasRoutes);
+app.use('/api/media', authenticateToken, mediaRoutes);
 
 // Health check endpoint
 app.get('/health', (req, res) => {
